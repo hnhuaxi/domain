@@ -51,8 +51,12 @@ func BuildSearchOpts(req interface{}) (*repository.SearchOpt, error) {
 				chain(repository.OptBefore(repository.SID(*page.BeforeId)))
 			}
 
-			if page.Offset != nil {
-				chain(repository.OptOffset(int(*page.Offset)))
+			// if page.Offset != nil {
+			// 	chain(repository.OptOffset(int(*page.Offset)))
+			// }
+
+			if page.Page != nil {
+				chain(repository.OptPage(int(*page.Page)))
 			}
 
 			if page.PageSize != nil {
@@ -80,6 +84,9 @@ func BuildSearchOpts(req interface{}) (*repository.SearchOpt, error) {
 	if filter, ok := req.(GetFilter); ok {
 		var errs error
 		if filters := filter.GetFilters(); len(filters) > 0 {
+			filters = slice.Filter(filters, func(f string) bool {
+				return len(f) > 0
+			})
 			filterOpts := slice.Map(filters, func(flt string) repository.FilterItem {
 				var filterItem repository.FilterItem
 				if err := json.Unmarshal([]byte(flt), &filterItem); err != nil {

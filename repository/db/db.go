@@ -324,9 +324,11 @@ func (r *DBRepository[M, E]) Find(ctx context.Context, opts ...repository.Search
 	}
 
 	scope = scope.Limit(so.Page.PageSize)
-	if so.Page.PageOffset > 0 {
-		scope = scope.Offset(so.Page.PageOffset)
+	if so.Page.Page > 0 && so.Page.PageSize > 0 {
+		scope = scope.Offset((so.Page.Page - 1) * so.Page.PageSize)
 	}
+	metadata.Page = so.Page.Page
+	metadata.PageSize = so.Page.PageSize
 
 	// 载入过滤器阶段
 	if err := r.validFilters(so.Filters); err != nil {
@@ -481,6 +483,11 @@ func (r *DBRepository[M, E]) Insert(ctx context.Context, entity *E, ops ...repos
 		}
 	}()
 
+	// 扩展 db scopes 处理
+	for _, dbScope := range opts.DBScopes {
+		scope = dbScope(scope)
+	}
+
 	return r.withDebug(ctx, scope, func(tx Scope) Scope {
 		if opts.ForceCreate {
 			return tx.Model(m).Create(m)
@@ -576,8 +583,15 @@ func (r *DBRepository[M, E]) getPrimaryValue(m any) (interface{}, error) {
 }
 
 func (r *DBRepository[M, E]) Delete(ctx context.Context, entity E) error {
+	var (
+		scope = r.getScope()
+		g     M
+		m     = g.FromEntity(entity)
+	)
 
-	panic("not implemented") // TODO: Implement
+	return r.withDebug(ctx, scope, func(tx Scope) Scope {
+		return tx.Model(m).Delete(m)
+	})
 }
 
 func (r *DBRepository[M, E]) buildPutOpts(ops []PutOptFunc) (*PutOption, error) {
@@ -753,7 +767,11 @@ func (r *DBRepository[M, E]) validSorts(sorts []repository.SortMode) error {
 
 func (r *DBRepository[M, E]) validFilters(filters []repository.FilterItem) error {
 	var errs error
+
 	for _, filter := range filters {
+		if ok := r.extendsIds[utils.CamelCase(filter.ID)]; ok {
+			continue
+		}
 		id := utils.SnakeCase(filter.ID)
 		field, err := r.Field(id)
 		if err != nil {

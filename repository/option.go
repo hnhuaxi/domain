@@ -35,6 +35,7 @@ type PutOption struct {
 	Omit                []string // 忽略字段
 	ReturnKey           string
 	ReturnColumns       []string
+	DBScopes            []ScopeFunc
 	LoadKeys            map[string]KeyFunc
 	ForceCreate         bool
 	Expires             time.Duration
@@ -53,6 +54,7 @@ type PageOption struct {
 	BeforeId   Key
 	PageSize   int
 	PageOffset int
+	Page       int
 }
 
 type SearchOptFunc func(*SearchOpt) error
@@ -119,12 +121,19 @@ func OptPageSize(size int) SearchOptFunc {
 	}
 }
 
-func OptOffset(oft int) SearchOptFunc {
+func OptPage(page int) SearchOptFunc {
 	return func(so *SearchOpt) error {
-		so.Page.PageOffset = oft
+		so.Page.Page = page
 		return nil
 	}
 }
+
+// func OptOffset(oft int) SearchOptFunc {
+// 	return func(so *SearchOpt) error {
+// 		so.Page.PageOffset = oft
+// 		return nil
+// 	}
+// }
 
 func OptDBScope(fn ScopeFunc) SearchOptFunc {
 	return func(so *SearchOpt) error {

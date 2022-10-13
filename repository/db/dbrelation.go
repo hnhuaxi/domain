@@ -116,9 +116,11 @@ func (r *DBRelationRepository[A, E, B, T]) Find(ctx context.Context, elem E, opt
 	}
 
 	scope = scope.Limit(so.Page.PageSize)
-	if so.Page.PageOffset > 0 {
-		scope = scope.Offset(so.Page.PageOffset)
+	if so.Page.Page > 0 {
+		scope = scope.Offset((so.Page.Page - 1) * so.Page.PageSize)
 	}
+	metadata.Page = so.Page.Page
+	metadata.PageSize = so.Page.PageSize
 
 	// 载入过滤器阶段
 	if err := r.validFilters(so.Filters); err != nil {
@@ -136,9 +138,16 @@ func (r *DBRelationRepository[A, E, B, T]) Find(ctx context.Context, elem E, opt
 			return nil, fmt.Errorf("no register filter id %s", filter.ID)
 		}
 
-		if bindOp, ok := op.(*BindOP); ok {
+		// if bindOp, ok := op.(*BindOP); ok {
+		// 	scope = bindOp.WithScope(scope, func() {
+		// 		bindOp.Op(field.DBName, filter.Value)
+		// 	})
+		// } else {
+		// 	return nil, fmt.Errorf("invalid db op bind of %s", filter.ID)
+		// }
+		if bindOp, ok := op.(ScopeWrap); ok {
 			scope = bindOp.WithScope(scope, func() {
-				bindOp.Op(field.DBName, filter.Value)
+				op.Op(field.DBName, filter.Value)
 			})
 		} else {
 			return nil, fmt.Errorf("invalid db op bind of %s", filter.ID)
@@ -167,6 +176,10 @@ func (r *DBRelationRepository[A, E, B, T]) Find(ctx context.Context, elem E, opt
 		return fi.Name
 	})
 	scope = scope.Select(fieldNames)
+
+	if len(so.Select) > 0 {
+		scope = scope.Select(so.Select)
+	}
 
 	// 关联载入
 	if scope, err = ChainErr(so.Relations, scope, func(relation repository.RelationItem, scope Scope) (Scope, error) {
@@ -379,13 +392,48 @@ func (r *DBRelationRepository[A, E, B, T]) joinRelatedModel(ctx context.Context,
 	// if err != nil {
 	// 	return nil, err
 	// }
-
-	joinExprs, err := JoinBuilder(elem, target, r.Assocation)
+	sche, err := schema.Parse(elem, &sync.Map{}, schema.NamingStrategy{})
 	if err != nil {
 		return nil, err
 	}
 
-	scope = scope.Clauses(joinExprs...)
+	relation, ok := sche.Relationships.Relations[r.Assocation]
+	if !ok {
+		return nil, fmt.Errorf("invalid assocation '%s'", r.Assocation)
+	}
+
+	switch relation.Type {
+	case schema.HasMany, schema.HasOne:
+		privalue, err := r.getPrimaryValue(elem)
+		if err != nil {
+			return nil, err
+		}
+		if len(relation.References) == 0 {
+			return nil, errors.New("relation References is empty")
+		}
+		ref := relation.References[0]
+		scope = scope.Clauses(clause.Where{
+			Exprs: []clause.Expression{
+				clause.Eq{Column: ref.ForeignKey.DBName, Value: privalue},
+			},
+		})
+	case schema.BelongsTo:
+		return nil, errors.New("nonimplement")
+	case schema.Many2Many:
+		joinExprs, err := JoinBuilder(elem, target, r.Assocation)
+		if err != nil {
+			return scope, err
+		}
+
+		// sch, err := schema.Parse(target, &sync.Map{}, schema.NamingStrategy{})
+		// if err != nil {
+		// 	return nil, err
+		// }
+		// // sch.Table +
+
+		scope = scope.Clauses(joinExprs)
+		// scope.Select()
+	}
 
 	// r.FieldName()
 	return scope, nil
@@ -499,9 +547,28 @@ type JoinAssociation struct {
 }
 
 func (join *JoinAssociation) ModifyStatement(stmt *gorm.Statement) {
-	clause := stmt.Clauses["FROM"]
-	clause.AfterExpression = join
-	stmt.Clauses["FROM"] = clause
+	from := stmt.Clauses["FROM"]
+	from.AfterExpression = join
+	stmt.Clauses["FROM"] = from
+	// selectClause := stmt.Clauses["SELECT"]
+	// if selectClause.AfterExpression == nil {
+	// 	selectClause.AfterExpression = clause.Select{
+	// 		Distinct: false,
+	// 		Columns:  join.elemColumns(),
+	// 	}
+	// 	stmt.Clauses["SELECT"] = selectClause
+	// }
+}
+
+func (join *JoinAssociation) elemColumns() []clause.Column {
+	var columns []clause.Column
+	for _, field := range join.Elem.DBNames {
+		columns = append(columns, clause.Column{
+			Table: join.JoinTable.Name,
+			Name:  field,
+		})
+	}
+	return columns
 }
 
 func (j *JoinAssociation) Build(build clause.Builder) {
@@ -535,25 +602,12 @@ func (j *JoinAssociation) Build(build clause.Builder) {
 				},
 			},
 		}
-
-		// where = clause.Where{
-		// 	Exprs: []clause.Expression{
-		// 		clause.Eq{
-		// 			Column: clause.Column{
-		// 				Table: j.JoinTable.Table,
-		// 				Name:  j.TargetField.DBName,
-		// 			},
-		// 			Value: j.fieldValue,
-		// 		},
-		// 	},
-		// }
 	)
 
 	join.Build(build)
-	// where.Build(build)
 }
 
-func JoinBuilder(elem, target interface{}, association string) ([]clause.Expression, error) {
+func JoinBuilder(elem, target interface{}, association string) (*JoinAssociation, error) {
 	sche, err := schema.Parse(elem, &sync.Map{}, schema.NamingStrategy{})
 	if err != nil {
 		return nil, err
@@ -573,6 +627,10 @@ func JoinBuilder(elem, target interface{}, association string) ([]clause.Express
 		joinTable = relation.JoinTable
 	)
 
+	if joinTable == nil {
+		return nil, nil
+	}
+
 	firstField := utils.Singular(sche.Table) + "_id"
 	secondField := utils.Singular(scht.Table) + "_id"
 
@@ -585,24 +643,13 @@ func JoinBuilder(elem, target interface{}, association string) ([]clause.Express
 
 	targetField := joinTable.LookUpField(firstField)
 
-	expres := []clause.Expression{
-		&JoinAssociation{
-			Association: association,
-			Elem:        sche,
-			JoinTable:   joinTable,
-			Field:       joinField,
-			Target:      scht,
-			TargetField: targetField,
-			fieldValue:  id,
-		},
-	}
-
-	return expres, nil
+	return &JoinAssociation{
+		Association: association,
+		Elem:        sche,
+		JoinTable:   joinTable,
+		Field:       joinField,
+		Target:      scht,
+		TargetField: targetField,
+		fieldValue:  id,
+	}, nil
 }
-
-// func (join *JoinAssociation) MergeClause(clau *clause.Clause) {
-// 	if from, ok := clau.Expression.(*clause.From); ok {
-// 		from.Joins = append(from.Joins, clause.Join{})
-// 	}
-// 	panic("not implemented") // TODO: Implement
-// }

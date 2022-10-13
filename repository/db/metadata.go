@@ -17,7 +17,26 @@ type mysqlSelectTotals struct {
 }
 
 func (*mysqlSelectTotals) ModifyStatement(stmt *gorm.Statement) {
-	stmt.Selects = append([]string{"SQL_CALC_FOUND_ROWS *"}, stmt.Selects...)
+	selectClause := stmt.Clauses["SELECT"]
+	if selectClause.AfterExpression != nil {
+		stmt.Selects = append([]string{"SQL_CALC_FOUND_ROWS *,"}, stmt.Selects...)
+	} else {
+		stmt.Selects = append([]string{"SQL_CALC_FOUND_ROWS *"}, stmt.Selects...)
+	}
+	// selectClause := stmt.Clauses["SELECT"]
+	// if selectClause.AfterExpression == nil {
+	// 	selectClause.AfterExpression = clause.Select{
+	// 		Distinct: false,
+	// 		Columns: []clause.Column{
+	// 			{
+	// 				Name: "SQL_CALC_FOUND_ROWS *",
+	// 				Raw:  true,
+	// 			},
+	// 		},
+	// 		Expression: nil,
+	// 	}
+	// 	stmt.Clauses["SELECT"] = selectClause
+	// }
 }
 
 func (*mysqlSelectTotals) Build(builder clause.Builder) {

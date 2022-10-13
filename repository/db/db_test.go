@@ -84,7 +84,7 @@ func TestNewDbRepository(t *testing.T) {
 	})
 	// r.AddSort()
 	users, _, err := r.Find(WithDebugSQL(ctx),
-		repository.OptOffset(200),
+		repository.OptPage(2),
 		repository.OptPageSize(100),
 		// OptDBScope(func(tx Scope) Scope {
 		// 	return tx.Where("age > 18")

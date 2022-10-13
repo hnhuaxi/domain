@@ -62,7 +62,7 @@ func TestNewDbRelationRepository(t *testing.T) {
 	// r.AddRelationPreload("Team")
 	// r.AddSort()
 	_, _, err := r.Find(WithDebugSQL(ctx), &usr,
-		repository.OptOffset(200),
+		repository.OptPage(2),
 		repository.OptPageSize(100),
 		// OptDBScope(func(tx Scope) Scope {
 		// 	return tx.Where("age > 18")
@@ -115,7 +115,7 @@ func TestJoinAssociation(t *testing.T) {
 	}, &Account{}, "Accounts")
 	assert.NoError(t, err)
 
-	scope := db.Clauses(joinExprs...)
+	scope := db.Clauses(joinExprs)
 
 	sql := scope.ToSQL(func(tx *gorm.DB) *gorm.DB {
 		return tx.Find(&accounts)

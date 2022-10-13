@@ -172,7 +172,8 @@ func (rredis *RedisRepository[M, E]) Find(ctx context.Context, ops ...repository
 		m        M
 		cmds     []*redis.StringCmd
 		results  []M
-		match    = rredis.getKey(rredis.getModel(m) + ":*")
+		match    = rredis.getKey(rredis.getModel(m)) + ":*"
+		_keys    []string
 	)
 
 	sch, err := rredis.getSchema()
@@ -189,10 +190,31 @@ func (rredis *RedisRepository[M, E]) Find(ctx context.Context, ops ...repository
 		cursor, _ = convert.Uint64(opts.Page.AfterId.Value())
 	}
 
-	keys, cursor, err := rredis.redis.Scan(ctx, cursor, match, int64(opts.Page.PageSize)).Result()
+	if opts.Page.PageSize == 0 {
+		opts.Page.PageSize = 20
+	}
+
+	keys, cursor, err := rredis.redis.Scan(ctx, cursor, match, 0).Result()
 	if err != nil {
 		return nil, metadata, err
 	}
+
+	if cursor > 0 {
+
+		for len(keys) < opts.Page.PageSize {
+			_keys, cursor, err = rredis.redis.Scan(ctx, cursor, match, 0).Result()
+			if err != nil {
+				return nil, metadata, err
+			}
+
+			keys = append(keys, _keys...)
+			if cursor == 0 {
+				break
+			}
+		}
+	}
+
+	keys = keys[:min(opts.Page.PageSize, len(keys))]
 
 	pipe := rredis.redis.Pipeline()
 
@@ -223,6 +245,13 @@ func (rredis *RedisRepository[M, E]) Find(ctx context.Context, ops ...repository
 	return db.SliceGo2Pb[M, E](results), metadata, errs
 }
 
+func min(a, b int) int {
+	if a > b {
+		return b
+	}
+	return a
+}
+
 func (rredis *RedisRepository[M, E]) Delete(ctx context.Context, entity E) error {
 	var (
 		m = repository.FromEntity[M](entity)
@@ -238,6 +267,14 @@ func (rredis *RedisRepository[M, E]) Delete(ctx context.Context, entity E) error
 		return err
 	}
 
+	return nil
+}
+
+func (rredis *RedisRepository[M, E]) DeleteKey(ctx context.Context, key repository.Key) error {
+	_, err := rredis.redis.Del(ctx, rredis.fullkey(key)).Result()
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

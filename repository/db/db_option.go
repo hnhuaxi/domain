@@ -3,6 +3,7 @@ package db
 import (
 	"reflect"
 
+	"github.com/hnhuaxi/domain/repository"
 	"gorm.io/gorm/clause"
 )
 
@@ -78,6 +79,13 @@ func OptOverwrite(key string, val ...interface{}) PutOptFunc {
 		} else {
 			opt.LoadKeys[key] = ValueFromModel(key)
 		}
+		return nil
+	}
+}
+
+func OptPutScope(scopefunc repository.ScopeFunc) PutOptFunc {
+	return func(opt *PutOption) error {
+		opt.DBScopes = append(opt.DBScopes, scopefunc)
 		return nil
 	}
 }

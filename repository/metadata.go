@@ -1,8 +1,10 @@
 package repository
 
 type SearchMetadata struct {
-	Count  int
-	Total  int
-	PrevID string
-	NextID string
+	Count    int
+	Total    int
+	Page     int
+	PageSize int
+	PrevID   string
+	NextID   string
 }

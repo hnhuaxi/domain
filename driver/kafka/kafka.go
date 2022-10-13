@@ -51,7 +51,8 @@ func (sub *kafkaSubscribe) Subscribe(ctx context.Context, topic string) (<-chan 
 			msg, err := sub.c.ReadMessage(-1)
 			if err != nil {
 				sub.log.Error("read message error", err, nil)
-				return
+				continue
+				// return
 			} else {
 				// The client will automatically try to recover from all errors.
 				sub.c.CommitOffsets([]kafka.TopicPartition{msg.TopicPartition})
