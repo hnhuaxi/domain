@@ -6,15 +6,18 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/confluentinc/confluent-kafka-go/kafka"
+
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/creasty/defaults"
 	"github.com/hnhuaxi/domain"
+	"github.com/hnhuaxi/platform/logger"
 )
 
 type SubscribeConfig struct {
 	Brokers     []string
 	Group       string
 	OffsetReset string `default:"earliest"`
+	Logger      *logger.Logger
 }
 
 func SubscriberMaker(cfg SubscribeConfig) domain.SubscriberMaker {
@@ -31,8 +34,16 @@ func SubscriberMaker(cfg SubscribeConfig) domain.SubscriberMaker {
 			return nil, err
 		}
 
+		var log watermill.LoggerAdapter
+
+		if cfg.Logger != nil {
+			log = domain.StdLogger(cfg.Logger)
+		} else {
+			log = domain.Logger
+		}
+
 		return &kafkaSubscribe{
-			log: domain.Logger,
+			log: log,
 			c:   c,
 		}, nil
 	}

@@ -37,7 +37,7 @@ type DBRepository[M repository.Model[E], E any] struct {
 	db          *gorm.DB
 	tx          *gorm.DB
 	defaults    map[string]repository.SearchOpt
-	filterOps   map[string]Oper
+	filterOps   map[string]TypeOper
 	sorts       map[string]repository.OrderDirection
 	extendSorts map[string]CustomSortFunc
 	relations   map[string]repository.RelationDef
@@ -53,7 +53,7 @@ func NewDBRepository[M repository.Model[E], E any](db *gorm.DB, log *logger.Logg
 		logger:      log,
 		db:          db,
 		defaults:    make(map[string]repository.SearchOpt),
-		filterOps:   make(map[string]Oper),
+		filterOps:   make(map[string]TypeOper),
 		validKeys:   make([]string, 0),
 		relations:   make(map[string]repository.RelationDef),
 		extendsIds:  make(map[string]bool),
@@ -158,6 +158,10 @@ func (r *DBRepository[M, E]) GetInto(ctx context.Context, entity *E, key reposit
 	scope = r.applySearchColumns(opt, scope)
 
 	scope = r.applyRelations(scope, opt.Relations)
+	// 扩展 db scopes 处理
+	for _, dbScope := range opt.DBScopes {
+		scope = dbScope(scope)
+	}
 
 	return r.withDebug(ctx, scope, func(scope Scope) Scope {
 		defer func() {
@@ -341,14 +345,15 @@ func (r *DBRepository[M, E]) Find(ctx context.Context, opts ...repository.Search
 		if err != nil {
 			return nil, err
 		}
-		op, ok := r.filterOps[field.Name]
+		typeop, ok := r.filterOps[field.Name]
 		if !ok {
 			return nil, fmt.Errorf("no register filter id %s", filter.ID)
 		}
 
-		if bindOp, ok := op.(ScopeWrap); ok {
+		if bindOp, ok := typeop.Oper.(ScopeWrap); ok {
+			filter.Type = typeop.Type
 			scope = bindOp.WithScope(scope, func() {
-				op.Op(field.DBName, filter.Value)
+				typeop.Oper.Op(field.DBName, filter.Val())
 			})
 		} else {
 			return nil, fmt.Errorf("invalid db op bind of %s", filter.ID)
@@ -651,14 +656,30 @@ func (r *DBRepository[M, E]) SetValidKey(key ...string) *DBRepository[M, E] {
 	return r
 }
 
-func (r *DBRepository[M, E]) AddFilter(id string, op Oper) *DBRepository[M, E] {
-	r.filterOps[id] = op
+func (r *DBRepository[M, E]) AddFilter(id string, op Oper, ftType ...repository.FTType) *DBRepository[M, E] {
+
+	defType := func(ftTypes []repository.FTType) repository.FTType {
+		if len(ftTypes) > 0 {
+			return ftTypes[0]
+		}
+
+		return repository.FTAuto
+	}
+
+	r.filterOps[id] = TypeOper{
+		Oper: op,
+		Type: defType(ftType),
+	}
+
 	return r
 }
 
 func (r *DBRepository[M, E]) AddCustomFilter(id string, fn CustomOpFunc) *DBRepository[M, E] {
 	r.extendsIds[utils.CamelCase(id)] = true
-	r.filterOps[id] = CustomFilter(fn)
+	r.filterOps[id] = TypeOper{
+		Oper: CustomFilter(fn),
+	}
+
 	return r
 }
 

@@ -21,6 +21,7 @@ type SearchOpt struct {
 	Omit       []string
 	Expiration time.Duration
 	Customs    CustomOption
+	SkipCache  bool
 
 	validKeys []string
 	sch       *schema.Schema
@@ -211,6 +212,13 @@ func OptExpires(duration time.Duration) PutOptFunc {
 func OptExpiration(duration time.Duration) SearchOptFunc {
 	return func(so *SearchOpt) error {
 		so.Expiration = duration
+		return nil
+	}
+}
+
+func OptWithoutCache() SearchOptFunc {
+	return func(so *SearchOpt) error {
+		so.SkipCache = true
 		return nil
 	}
 }

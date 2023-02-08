@@ -11,7 +11,7 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
-type CounterSet[K any, T constraints.Integer] interface {
+type CounterRecord[K any, T constraints.Integer] interface {
 	Inc(k K) (T, error)
 	IncBy(k K, c T) (T, error)
 	Dec(k K) (T, error)
@@ -40,7 +40,7 @@ type SetOption struct {
 
 type SetOptionFunc func(*SetOption)
 
-type counterset[K any, T constraints.Integer] struct {
+type counterRecord[K any, T constraints.Integer] struct {
 	Prefix   string
 	rediscli *redis.Client
 	Option   SetOption
@@ -77,20 +77,20 @@ var DefaultPattern = func(prefix string, k any) string {
 	return fmt.Sprintf("%s:%v", prefix, k)
 }
 
-func NewCounterSet[K any, T constraints.Integer](prefix string, rediscli *redis.Client, ops ...SetOptionFunc) CounterSet[K, T] {
+func NewCounterRecord[K any, T constraints.Integer](prefix string, rediscli *redis.Client, ops ...SetOptionFunc) CounterRecord[K, T] {
 	var opts SetOption
 	for _, op := range ops {
 		op(&opts)
 	}
 
-	return &counterset[K, T]{
+	return &counterRecord[K, T]{
 		Prefix:   prefix,
 		rediscli: rediscli,
 		Option:   opts,
 	}
 }
 
-func (set *counterset[K, T]) getKey(k K) CounterKey[T] {
+func (set *counterRecord[K, T]) getKey(k K) CounterKey[T] {
 	var (
 		pattern = DefaultPattern
 		ops     []KeyOptionFunc
@@ -114,7 +114,8 @@ func (set *counterset[K, T]) getKey(k K) CounterKey[T] {
 
 	return NewCounterKey[T](pattern(set.Prefix, k), set.rediscli, ops...)
 }
-func (set *counterset[K, T]) all() CounterKey[T] {
+
+func (set *counterRecord[K, T]) all() CounterKey[T] {
 	var (
 		pattern = DefaultPattern
 		ops     []KeyOptionFunc
@@ -127,39 +128,39 @@ func (set *counterset[K, T]) all() CounterKey[T] {
 	return NewCounterKey[T](pattern(set.Prefix, "*"), set.rediscli, ops...)
 }
 
-func (set *counterset[K, T]) Inc(k K) (T, error) {
+func (set *counterRecord[K, T]) Inc(k K) (T, error) {
 	return set.getKey(k).Inc()
 }
 
-func (set *counterset[K, T]) IncBy(k K, c T) (T, error) {
+func (set *counterRecord[K, T]) IncBy(k K, c T) (T, error) {
 	return set.getKey(k).IncBy(c)
 }
 
-func (set *counterset[K, T]) Dec(k K) (T, error) {
+func (set *counterRecord[K, T]) Dec(k K) (T, error) {
 	return set.getKey(k).Dec()
 }
 
-func (set *counterset[K, T]) DecBy(k K, c T) (T, error) {
+func (set *counterRecord[K, T]) DecBy(k K, c T) (T, error) {
 	return set.getKey(k).DecBy(c)
 }
 
-func (set *counterset[K, T]) Load(k K) (T, bool) {
+func (set *counterRecord[K, T]) Load(k K) (T, bool) {
 	return set.getKey(k).Load()
 }
 
-func (set *counterset[K, T]) Store(k K, value T) bool {
+func (set *counterRecord[K, T]) Store(k K, value T) bool {
 	return set.getKey(k).Store(value)
 }
 
-func (set *counterset[K, T]) Remove(k K) bool {
+func (set *counterRecord[K, T]) Remove(k K) bool {
 	return set.getKey(k).Remove()
 }
 
-func (set *counterset[K, T]) Subscribe(k K) chan T {
+func (set *counterRecord[K, T]) Subscribe(k K) chan T {
 	return set.getKey(k).Subscribe()
 }
 
-func (set *counterset[K, T]) SubscribeAll() chan Sub[T] {
+func (set *counterRecord[K, T]) SubscribeAll() chan Sub[T] {
 	var (
 		pattern = DefaultPattern
 		ctx     = context.Background()

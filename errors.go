@@ -11,6 +11,7 @@ var (
 	ErrInvalidDriverType = errors.New("invalid driver type")
 	ErrCantPrimaryKey    = errors.New("can't get primary key")
 	ErrMustNotZero       = errors.New("must not zero value")
+	ErrNotFound          = errors.New("not found")
 )
 
 func CheckDuplicate(err error) bool {
@@ -32,6 +33,10 @@ func CheckDuplicateRelation(err error) bool {
 }
 
 func CheckNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return true
 	}

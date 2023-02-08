@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 
+	"github.com/hnhuaxi/utils/convert"
 	"gorm.io/gorm"
 )
 
@@ -26,7 +27,7 @@ type Repository[M Model[E], E any] interface {
 type Builder[M Model[E], E any] interface {
 	DefaultsOpts(method string, opts SearchOpt) Builder[M, E]
 	SetValidKey(key ...string) Builder[M, E]
-	AddFilter(id string, op Oper) Builder[M, E]
+	AddFilter(id string, op Oper, typ ...FTType) Builder[M, E]
 	AddCustomFilter(id string, fn CustomOpFunc) *Builder[M, E]
 	AddSort(field string, defOrder ...OrderDirection) *Builder[M, E]
 	AddCustomSort(field string, fn CustomSortFunc, defOrder ...OrderDirection) Builder[M, E]
@@ -35,9 +36,20 @@ type Builder[M Model[E], E any] interface {
 	AddRelationPreload(association string, query ...string) *Builder[M, E]
 }
 
+type FTType int
+
+const (
+	FTAuto FTType = iota
+	FTInt
+	FTFloat
+	FTBool
+	FTString
+)
+
 type FilterItem struct {
 	ID    string
 	Value interface{}
+	Type  FTType
 }
 
 type SortMode struct {
@@ -61,4 +73,21 @@ type FieldItem struct {
 type RelationItem struct {
 	Association string
 	Args        []interface{}
+}
+
+func (item *FilterItem) Val() interface{} {
+	switch item.Type {
+	case FTAuto:
+		return item.Value
+	case FTInt:
+		return convert.ToInt(item.Value)
+	case FTFloat:
+		return convert.ToFloat(item.Value)
+	case FTString:
+		return convert.ToStr(item.Value)
+	case FTBool:
+		return convert.ToBool(item.Value)
+	default:
+		return item.Value
+	}
 }

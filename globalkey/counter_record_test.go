@@ -14,7 +14,7 @@ func TestSetInc(t *testing.T) {
 		db, mock = redismock.NewClientMock()
 	)
 
-	set := NewCounterSet[uint, int]("set_test$$", db)
+	set := NewCounterRecord[uint, int]("set_test$$", db)
 	assert.NotNil(t, set)
 
 	mock.ExpectIncr("set_test$$:1234").SetVal(1)
@@ -33,7 +33,7 @@ func TestSetPattern(t *testing.T) {
 		db, mock = redismock.NewClientMock()
 	)
 
-	set := NewCounterSet[uint, int]("set_test$$", db, OptSetPattern(func(prefix string, key any) string {
+	set := NewCounterRecord[uint, int]("set_test$$", db, OptSetPattern(func(prefix string, key any) string {
 		return fmt.Sprintf("%s:%s:%v", prefix, time.Now().Format("2006-01-02"), key)
 	}))
 	assert.NotNil(t, set)
@@ -54,7 +54,7 @@ func TestSetDec(t *testing.T) {
 		db, mock = redismock.NewClientMock()
 	)
 
-	set := NewCounterSet[uint, int]("set_test$$", db)
+	set := NewCounterRecord[uint, int]("set_test$$", db)
 	assert.NotNil(t, set)
 
 	mock.ExpectDecr("set_test$$:1234").SetVal(-1)
@@ -73,7 +73,7 @@ func TestSetStore(t *testing.T) {
 		db, mock = redismock.NewClientMock()
 	)
 
-	set := NewCounterSet[uint, int]("set_test$$", db)
+	set := NewCounterRecord[uint, int]("set_test$$", db)
 	assert.NotNil(t, set)
 
 	mock.ExpectSetEX("set_test$$:1234", 3, 0).RedisNil()

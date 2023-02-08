@@ -3,119 +3,169 @@ package globalkey
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 
+	"github.com/akrennmair/slice"
 	"github.com/go-redis/redis/v8"
 )
 
-type Set[K, T any] interface {
-	Load(k K) (T, bool)
-	Store(k K, value T) bool
-	Remove(k K) bool
-	Subscribe(k K) chan T
-	SubscribeAll() chan Sub[T]
+type Set[T any] interface {
+	Load() ([]T, bool)
+	Len() int
+	Add(...T) int
+	Has(T) bool
+	Range() chan T
+	Remove(...T) int
+	Subscribe() chan T
 }
 
-type set[K any, T any] struct {
-	Prefix   string
+type set[T any] struct {
+	key      string
 	rediscli *redis.Client
-	Option   SetOption
 }
 
-func NewSet[K any, T any](prefix string, rediscli *redis.Client, ops ...SetOptionFunc) Set[K, T] {
-	var opts SetOption
+func NewSet[T any](key string, rediscli *redis.Client, ops ...KeyOptionFunc) Set[T] {
+	var opts KeyOption
 	for _, op := range ops {
 		op(&opts)
 	}
 
-	return &set[K, T]{
-		Prefix:   prefix,
+	return &set[T]{
+		key:      key,
 		rediscli: rediscli,
-		Option:   opts,
 	}
 }
 
-func (set *set[K, T]) getKey(k K) GlobalKey[T] {
+func (set *set[T]) instance() (out T, isPtr bool) {
 	var (
-		pattern = DefaultPattern
-		ops     []KeyOptionFunc
+		z    T
+		orgv = reflect.ValueOf(z)
+		v    = reflect.Indirect(orgv)
 	)
 
-	if set.Option.PatternFunc != nil {
-		pattern = set.Option.PatternFunc
-	}
+	isPtr = orgv.Kind() == reflect.Ptr
 
-	if set.Option.Log != nil {
-		ops = append(ops, OptLogger(set.Option.Log))
+	switch v.Kind() {
+	case reflect.Struct:
+		out = reflect.New(v.Type()).Interface().(T)
+	case reflect.Map:
+		out = reflect.MakeMap(v.Type()).Interface().(T)
+	default:
+		out = reflect.New(v.Type()).Elem().Interface().(T)
 	}
-
-	if set.Option.Publish {
-		ops = append(ops, OptPublish(set.Option.PublishTopic))
-	}
-
-	if set.Option.Expires > 0 {
-		ops = append(ops, OptExpires(set.Option.Expires))
-	}
-
-	return NewGlobalKey[T](pattern(set.Prefix, k), set.rediscli, ops...)
+	return
 }
 
-func (set *set[K, T]) all() GlobalKey[T] {
+func (set *set[T]) Load() ([]T, bool) {
 	var (
-		pattern = DefaultPattern
-		ops     []KeyOptionFunc
+		ctx = context.Background()
 	)
 
-	if set.Option.PatternFunc != nil {
-		pattern = set.Option.PatternFunc
+	ss, err := set.rediscli.SMembers(ctx, set.key).Result()
+	if err != nil {
+		return nil, false
 	}
 
-	return NewGlobalKey[T](pattern(set.Prefix, "*"), set.rediscli, ops...)
+	vals := slice.Map(ss, func(s string) T {
+		var val, isPtr = set.instance()
+		if isPtr {
+			_ = json.Unmarshal([]byte(s), val)
+		} else {
+			_ = json.Unmarshal([]byte(s), &val)
+		}
+		return val
+	})
+
+	return vals, true
 }
 
-func (set *set[K, T]) Load(k K) (T, bool) {
-	return set.getKey(k).Load()
-}
-
-func (set *set[K, T]) Store(k K, value T) bool {
-	return set.getKey(k).Store(value)
-}
-
-func (set *set[K, T]) Remove(k K) bool {
-	return set.getKey(k).Remove()
-}
-
-func (set *set[K, T]) Subscribe(k K) chan T {
-	return set.getKey(k).Subscribe()
-}
-
-func (set *set[K, T]) SubscribeAll() chan Sub[T] {
+func (set *set[T]) Len() int {
 	var (
-		pattern = DefaultPattern
-		ctx     = context.Background()
-		ch      = make(chan Sub[T])
+		ctx = context.Background()
+	)
+	count, err := set.rediscli.SCard(ctx, set.key).Result()
+	if err != nil {
+		return 0
+	}
+
+	return int(count)
+}
+
+func (set *set[T]) Has(val T) bool {
+	var (
+		ctx  = context.Background()
+		b, _ = json.Marshal(val)
+	)
+	v, err := set.rediscli.SIsMember(ctx, set.key, b).Result()
+	if err != nil {
+		return false
+	}
+
+	return v
+}
+
+func (set *set[T]) Add(add ...T) int {
+	var (
+		ctx  = context.Background()
+		vals = slice.Map(add, func(a T) interface{} {
+			b, _ := json.Marshal(a)
+			return b
+		})
 	)
 
-	if set.Option.PatternFunc != nil {
-		pattern = set.Option.PatternFunc
-	}
+	c, _ := set.rediscli.SAdd(ctx, set.key, vals...).Result()
+	return int(c)
+}
 
-	pubsub := set.rediscli.PSubscribe(ctx, pattern(set.Prefix, "*"))
+func (set *set[T]) Remove(del ...T) int {
+	var (
+		ctx  = context.Background()
+		vals = slice.Map(del, func(a T) interface{} {
+			b, _ := json.Marshal(a)
+			return b
+		})
+	)
+	c, _ := set.rediscli.SRem(ctx, set.key, vals).Result()
+	return int(c)
+
+}
+
+func (set *set[T]) Subscribe() chan T {
+	panic("not implemented") // TODO: Implement
+}
+
+func (set *set[T]) Range() chan T {
+	var (
+		ctx    = context.Background()
+		cursor uint64
+		keys   []string
+		ch     = make(chan T)
+	)
+
 	go func() {
-		for {
-			var sub Sub[T]
-			msg, err := pubsub.ReceiveMessage(ctx)
-			if err != nil {
-				return
+		keys, cursor, _ = set.rediscli.SScan(ctx, set.key, cursor, "", 0).Result()
+		for _, key := range keys {
+			var val, isPtr = set.instance()
+			if isPtr {
+				_ = json.Unmarshal([]byte(key), val)
+			} else {
+				_ = json.Unmarshal([]byte(key), &val)
 			}
+			ch <- val
+		}
 
-			sub.Topic = msg.Channel
-			if err = json.Unmarshal([]byte(msg.Payload), &sub.Value); err != nil {
-				return
+		for cursor != 0 {
+			keys, cursor, _ = set.rediscli.SScan(ctx, set.key, cursor, "", 0).Result()
+			for _, key := range keys {
+				var val, isPtr = set.instance()
+				if isPtr {
+					_ = json.Unmarshal([]byte(key), val)
+				} else {
+					_ = json.Unmarshal([]byte(key), &val)
+				}
+				ch <- val
 			}
-
-			ch <- sub
 		}
 	}()
-
 	return ch
 }

@@ -141,12 +141,17 @@ func (rredis *RedisRepository[M, E]) Get(ctx context.Context, key repository.Key
 	}
 
 	b, err := rredis.redis.GetEx(ctx, rredis.fullkey(key), opts.Expiration).Result()
-	if err != nil {
-		return z, err
-	}
-
-	if err := json.Unmarshal([]byte(b), m); err != nil {
-		return z, err
+	switch err {
+	case redis.Nil:
+		return z, domain.ErrNotFound
+	case nil:
+		if err := json.Unmarshal([]byte(b), m); err != nil {
+			return z, err
+		}
+	default:
+		if err != nil {
+			return z, err
+		}
 	}
 
 	return m.ToEntity(), nil

@@ -133,7 +133,7 @@ func (r *DBRelationRepository[A, E, B, T]) Find(ctx context.Context, elem E, opt
 		if err != nil {
 			return nil, err
 		}
-		op, ok := r.filterOps[field.Name]
+		typeoper, ok := r.filterOps[field.Name]
 		if !ok {
 			return nil, fmt.Errorf("no register filter id %s", filter.ID)
 		}
@@ -145,9 +145,10 @@ func (r *DBRelationRepository[A, E, B, T]) Find(ctx context.Context, elem E, opt
 		// } else {
 		// 	return nil, fmt.Errorf("invalid db op bind of %s", filter.ID)
 		// }
-		if bindOp, ok := op.(ScopeWrap); ok {
+		if bindOp, ok := typeoper.Oper.(ScopeWrap); ok {
+			filter.Type = typeoper.Type
 			scope = bindOp.WithScope(scope, func() {
-				op.Op(field.DBName, filter.Value)
+				typeoper.Oper.Op(field.DBName, filter.Val())
 			})
 		} else {
 			return nil, fmt.Errorf("invalid db op bind of %s", filter.ID)

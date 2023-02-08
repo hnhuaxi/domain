@@ -8,7 +8,13 @@ import (
 )
 
 type Oper = repository.Oper
+
 type CustomSortFunc = repository.CustomSortFunc
+
+type TypeOper struct {
+	Oper Oper
+	Type repository.FTType
+}
 
 type ScopeWrap interface {
 	WithScope(scope repository.Scope, fn func()) repository.Scope
@@ -43,8 +49,11 @@ var (
 	ISNIL = &BindOP{op: DBIsNil}
 )
 
-func (db *DBRepository[M, E]) RegistryOp(id string, op Oper) {
-	db.filterOps[id] = op
+func (db *DBRepository[M, E]) RegistryOp(id string, op Oper, ftType repository.FTType) {
+	db.filterOps[id] = TypeOper{
+		Oper: op,
+		Type: ftType,
+	}
 }
 
 func DBEquals(key, value interface{}) repository.ScopeFunc {
