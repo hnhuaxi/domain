@@ -90,6 +90,13 @@ func OptPutScope(scopefunc repository.ScopeFunc) PutOptFunc {
 	}
 }
 
+func OptPutDb(scope repository.Scope) PutOptFunc {
+	return func(opt *PutOption) error {
+		opt.Scope = scope
+		return nil
+	}
+}
+
 func ValueFunc(value interface{}) KeyFunc {
 	return func(model interface{}) interface{} {
 		return value

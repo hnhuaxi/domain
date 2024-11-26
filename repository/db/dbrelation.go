@@ -234,6 +234,196 @@ func (r *DBRelationRepository[A, E, B, T]) Find(ctx context.Context, elem E, opt
 	return SliceGo2Pb[B, T](models), metadata, nil
 }
 
+// FindMany find many
+func (r *DBRelationRepository[A, E, B, T]) FindMany(ctx context.Context, elems []E, opts ...SearchOptFunc) ([]T, repository.SearchMetadata, error) {
+	var (
+		scope = r.getScope()
+		// start    A
+		target B
+		// m        = start.FromEntity(elems[0]).(A)
+		ms       = make([]A, len(elems))
+		err      error
+		metadata repository.SearchMetadata
+	)
+
+	var (
+		models = make([]B, 0, 100)
+	)
+
+	for i, m := range ms {
+		ms[i] = m.FromEntity(elems[i]).(A)
+	}
+
+	scope, err = r.joinRelatedManyModel(ctx, scope, ms, target)
+	if err != nil {
+		return nil, metadata, err
+	}
+
+	sch, err := r.getSchemaB()
+	if err != nil {
+		return nil, metadata, err
+	}
+
+	so, err := r.getSearchOptions("Find", opts, sch)
+	if err != nil {
+		return nil, metadata, err
+	}
+
+	log.Printf("search_options %+v", so)
+	withField := func(key string, do func(field *schema.Field)) (_err error) {
+		defer func() {
+			if err, ok := recover().(error); ok {
+				_err = err
+			}
+		}()
+
+		field, err := r.Field(key)
+		if err != nil {
+			return fmt.Errorf("repository: invalid field %w", err)
+		}
+		do(field)
+		return nil
+	}
+
+	withKey := func(key repository.Key, do func(field *schema.Field)) error {
+		if key == nil {
+			return nil
+		}
+		return withField(key.Name(), do)
+	}
+
+	// 分页处理阶段
+	if err := withKey(so.Page.AfterId, func(field *schema.Field) {
+		scope = scope.Where(fmt.Sprintf("%s > ?", field.DBName), so.Page.AfterId.Value())
+	}); err != nil {
+		return nil, metadata, err
+	}
+
+	if err := withKey(so.Page.BeforeId, func(field *schema.Field) {
+		scope = scope.Where(fmt.Sprintf("%s < ?", field.DBName), so.Page.BeforeId.Value())
+	}); err != nil {
+		return nil, metadata, err
+	}
+
+	scope = scope.Limit(so.Page.PageSize)
+	if so.Page.Page > 0 {
+		scope = scope.Offset((so.Page.Page - 1) * so.Page.PageSize)
+	}
+	metadata.Page = so.Page.Page
+	metadata.PageSize = so.Page.PageSize
+
+	// 载入过滤器阶段
+	if err := r.validFilters(so.Filters); err != nil {
+		return nil, metadata, err
+	}
+
+	if scope, err = ChainErr(so.Filters, scope, func(filter repository.FilterItem, scope Scope) (Scope, error) {
+		id := utils.SnakeCase(filter.ID)
+		field, err := r.Field(id)
+		if err != nil {
+			return nil, err
+		}
+		typeoper, ok := r.filterOps[field.Name]
+		if !ok {
+			return nil, fmt.Errorf("no register filter id %s", filter.ID)
+		}
+
+		// if bindOp, ok := op.(*BindOP); ok {
+		// 	scope = bindOp.WithScope(scope, func() {
+		// 		bindOp.Op(field.DBName, filter.Value)
+		// 	})
+		// } else {
+		// 	return nil, fmt.Errorf("invalid db op bind of %s", filter.ID)
+		// }
+		if bindOp, ok := typeoper.Oper.(ScopeWrap); ok {
+			filter.Type = typeoper.Type
+			scope = bindOp.WithScope(scope, func() {
+				typeoper.Oper.Op(field.DBName, filter.Val())
+			})
+		} else {
+			return nil, fmt.Errorf("invalid db op bind of %s", filter.ID)
+		}
+		return scope, nil
+	}); err != nil {
+		return nil, metadata, err
+	}
+
+	// 排序处理阶段
+	so.Sorts = r.defaultSorts(so.Sorts)
+	if err := r.validSorts(so.Sorts); err != nil {
+		return nil, metadata, err
+	}
+
+	scope = Chain(so.Sorts, scope, func(sort repository.SortMode, scope Scope) Scope {
+		name, _ := r.DBName(sort.Field)
+		return scope.Order(fmt.Sprintf("%s %s", name, sort.Direction))
+	})
+
+	// 处理字段列表
+	fields := slice.Filter(so.Fields, func(fi repository.FieldItem) bool {
+		return fi.Table == "" || fi.Table == sch.Table
+	})
+	fieldNames := slice.Map(fields, func(fi repository.FieldItem) string {
+		return fi.Name
+	})
+	scope = scope.Select(fieldNames)
+
+	if len(so.Select) > 0 {
+		scope = scope.Select(so.Select)
+	}
+
+	// 关联载入
+	if scope, err = ChainErr(so.Relations, scope, func(relation repository.RelationItem, scope Scope) (Scope, error) {
+		refDef, ok := r.relations[relation.Association]
+		if !ok {
+			return nil, fmt.Errorf("no register association %s", relation.Association)
+		}
+
+		switch {
+		case refDef.Join:
+			if len(refDef.Query) > 0 && (refDef.ArgsCount) > 0 {
+				return scope.Joins(refDef.Query, relation.Args[:refDef.ArgsCount]), nil
+			} else {
+				return scope.Joins(relation.Association), nil
+			}
+		default:
+			if len(refDef.Query) > 0 && (refDef.ArgsCount) > 0 {
+				args := []interface{}{refDef.Query}
+				args = append(args, relation.Args[:refDef.ArgsCount]...)
+				return scope.Preload(relation.Association, args...), nil
+			} else {
+				return scope.Preload(relation.Association), nil
+			}
+		}
+	}); err != nil {
+		return nil, metadata, err
+	}
+
+	// 扩展 db scopes 处理
+	for _, dbScope := range so.DBScopes {
+		scope = dbScope(scope)
+	}
+
+	// 获取 total 数据
+	scope = r.applyTotal(ctx, scope)
+
+	if err := r.withDebug(ctx, scope, func(scope Scope) Scope {
+		return scope.Find(&models)
+	}); err != nil {
+		return nil, metadata, err
+	}
+
+	if total, ok := GetScopeTotal(scope); ok {
+		if err := total.Total(&metadata.Total); err != nil {
+			return nil, metadata, err
+		}
+	}
+
+	r.applyMetadata(&metadata, models)
+
+	return SliceGo2Pb[B, T](models), metadata, nil
+}
+
 func (r *DBRelationRepository[A, E, B, T]) Replace(ctx context.Context, elem E, targets ...T) error {
 	var (
 		scope = r.getScope()
@@ -440,6 +630,84 @@ func (r *DBRelationRepository[A, E, B, T]) joinRelatedModel(ctx context.Context,
 	return scope, nil
 }
 
+func (r *DBRelationRepository[A, E, B, T]) joinRelatedManyModel(ctx context.Context, scope Scope, elems []A, target B) (Scope, error) {
+	// schA, err := r.getSchemaA()
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	// schB, err := r.getSchemaB()
+	// if err != nil {
+	// 	return nil, err
+	// }
+	sche, err := schema.Parse(elems[0], &sync.Map{}, schema.NamingStrategy{})
+	if err != nil {
+		return nil, err
+	}
+
+	relation, ok := sche.Relationships.Relations[r.Assocation]
+	if !ok {
+		return nil, fmt.Errorf("invalid assocation '%s'", r.Assocation)
+	}
+
+	switch relation.Type {
+	case schema.HasMany, schema.HasOne:
+		var els = make([]interface{}, len(elems))
+		for i := range elems {
+			privalue, err := r.getPrimaryValue(elems[i])
+			if err != nil {
+				return nil, err
+			}
+			els[i] = privalue
+		}
+
+		if err != nil {
+			return nil, err
+		}
+		if len(relation.References) == 0 {
+			return nil, errors.New("relation References is empty")
+		}
+		ref := relation.References[0]
+		if len(elems) > 1 {
+			scope = scope.Clauses(clause.Where{
+				Exprs: []clause.Expression{
+					clause.IN{Column: ref.ForeignKey.DBName, Values: els},
+				},
+			})
+		} else {
+			scope = scope.Clauses(clause.Where{
+				Exprs: []clause.Expression{
+					clause.Eq{Column: ref.ForeignKey.DBName, Value: els[0]},
+				},
+			})
+		}
+	case schema.BelongsTo:
+		return nil, errors.New("nonimplement")
+	case schema.Many2Many:
+		els := make([]interface{}, len(elems))
+		for i, v := range elems {
+			els[i] = v
+		}
+
+		joinExprs, err := JoinBuilderMany(els, target, r.Assocation)
+		if err != nil {
+			return scope, err
+		}
+
+		// sch, err := schema.Parse(target, &sync.Map{}, schema.NamingStrategy{})
+		// if err != nil {
+		// 	return nil, err
+		// }
+		// // sch.Table +
+
+		scope = scope.Clauses(joinExprs)
+		// scope.Select()
+	}
+
+	// r.FieldName()
+	return scope, nil
+}
+
 type join struct {
 	Mode         clause.JoinType
 	Table        string
@@ -544,7 +812,8 @@ type JoinAssociation struct {
 	Field       *schema.Field
 	Target      *schema.Schema
 	TargetField *schema.Field
-	fieldValue  interface{}
+	fieldValue  []interface{}
+	HasMany     bool
 }
 
 func (join *JoinAssociation) ModifyStatement(stmt *gorm.Statement) {
@@ -573,6 +842,24 @@ func (join *JoinAssociation) elemColumns() []clause.Column {
 }
 
 func (j *JoinAssociation) Build(build clause.Builder) {
+	var eqValues clause.Expression
+	if len(j.fieldValue) > 1 {
+		eqValues = clause.IN{
+			Column: clause.Column{
+				Table: j.JoinTable.Table,
+				Name:  j.TargetField.DBName,
+			},
+			Values: j.fieldValue,
+		}
+	} else {
+		eqValues = clause.Eq{
+			Column: clause.Column{
+				Table: j.JoinTable.Table,
+				Name:  j.TargetField.DBName,
+			},
+			Value: j.fieldValue[0],
+		}
+	}
 	var (
 		join = clause.Join{
 			Type: clause.InnerJoin,
@@ -592,13 +879,7 @@ func (j *JoinAssociation) Build(build clause.Builder) {
 								Name:  clause.PrimaryKey,
 							},
 						},
-						clause.Eq{
-							Column: clause.Column{
-								Table: j.JoinTable.Table,
-								Name:  j.TargetField.DBName,
-							},
-							Value: j.fieldValue,
-						},
+						eqValues,
 					),
 				},
 			},
@@ -609,7 +890,11 @@ func (j *JoinAssociation) Build(build clause.Builder) {
 }
 
 func JoinBuilder(elem, target interface{}, association string) (*JoinAssociation, error) {
-	sche, err := schema.Parse(elem, &sync.Map{}, schema.NamingStrategy{})
+	return JoinBuilderMany([]interface{}{elem}, target, association)
+}
+
+func JoinBuilderMany(elems []interface{}, target interface{}, association string) (*JoinAssociation, error) {
+	sche, err := schema.Parse(elems[0], &sync.Map{}, schema.NamingStrategy{})
 	if err != nil {
 		return nil, err
 	}
@@ -635,9 +920,13 @@ func JoinBuilder(elem, target interface{}, association string) (*JoinAssociation
 	firstField := utils.Singular(sche.Table) + "_id"
 	secondField := utils.Singular(scht.Table) + "_id"
 
-	id, err := GetPrimaryValue(elem)
-	if err != nil {
-		return nil, err
+	ids := make([]interface{}, len(elems))
+	for i, elem := range elems {
+		id, err := GetPrimaryValue(elem)
+		if err != nil {
+			return nil, err
+		}
+		ids[i] = id
 	}
 
 	joinField := joinTable.LookUpField(secondField)
@@ -651,6 +940,6 @@ func JoinBuilder(elem, target interface{}, association string) (*JoinAssociation
 		Field:       joinField,
 		Target:      scht,
 		TargetField: targetField,
-		fieldValue:  id,
+		fieldValue:  ids,
 	}, nil
 }

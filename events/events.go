@@ -6,7 +6,7 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill-kafka/v2/pkg/kafka"
 	// "github.com/ThreeDotsLabs/watermill-nats/pkg/nats"
-	"github.com/AlexCuse/watermill-jetstream/pkg/jetstream"
+	// "github.com/AlexCuse/watermill-jetstream/pkg/jetstream"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/hnhuaxi/domain"
 	"github.com/hnhuaxi/domain/driver/amqp"
@@ -70,54 +70,54 @@ func NewEvents(config *config.Config, logger *logger.Logger) (*Events, error) {
 			subscriber: subscriber,
 			publisher:  publisher,
 		}, nil
-	case "nats":
-		var (
-			cfg = config.MessageQueue.Nats
-		)
-		_ = cfg
-		// subscribeConfig := jetstream.
+	// case "nats":
+	// var (
+	// 	cfg = config.MessageQueue.Nats
+	// )
+	// _ = cfg
+	// // subscribeConfig := jetstream.
 
-		subscriber, err := jetstream.NewSubscriber(
-			jetstream.SubscriberConfig{
-				URL:            cfg.Addr,
-				CloseTimeout:   cfg.CloseTimeout,
-				AckWaitTimeout: cfg.AckWaitTimeout,
-				Unmarshaler:    jetstream.JSONMarshaler{},
-			},
-			// nats.StreamingSubscriberConfig{
-			// 	ClusterID:        cfg.ClusterID,
-			// 	ClientID:         cfg.ClientID,
-			// 	QueueGroup:       cfg.QueueGroup,
-			// 	DurableName:      cfg.DurableName,
-			// 	SubscribersCount: cfg.MaxSubscribeCount, // how many goroutines should consume messages
-			// 	CloseTimeout:     cfg.CloseTimeout,
-			// 	AckWaitTimeout:   cfg.AckWaitTimeout,
-			// 	StanOptions: []stan.Option{
-			// 		stan.NatsURL(cfg.Addr),
-			// 	},
-			// 	Unmarshaler: nats.GobMarshaler{},
-			// },
-			domain.StdLogger(logger),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create nats subscriber: %w", err)
-		}
+	// subscriber, err := jetstream.NewSubscriber(
+	// 	jetstream.SubscriberConfig{
+	// 		URL:            cfg.Addr,
+	// 		CloseTimeout:   cfg.CloseTimeout,
+	// 		AckWaitTimeout: cfg.AckWaitTimeout,
+	// 		Unmarshaler:    jetstream.JSONMarshaler{},
+	// 	},
+	// 	// nats.StreamingSubscriberConfig{
+	// 	// 	ClusterID:        cfg.ClusterID,
+	// 	// 	ClientID:         cfg.ClientID,
+	// 	// 	QueueGroup:       cfg.QueueGroup,
+	// 	// 	DurableName:      cfg.DurableName,
+	// 	// 	SubscribersCount: cfg.MaxSubscribeCount, // how many goroutines should consume messages
+	// 	// 	CloseTimeout:     cfg.CloseTimeout,
+	// 	// 	AckWaitTimeout:   cfg.AckWaitTimeout,
+	// 	// 	StanOptions: []stan.Option{
+	// 	// 		stan.NatsURL(cfg.Addr),
+	// 	// 	},
+	// 	// 	Unmarshaler: nats.GobMarshaler{},
+	// 	// },
+	// 	domain.StdLogger(logger),
+	// )
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to create nats subscriber: %w", err)
+	// }
 
-		publisher, err := jetstream.NewPublisher(
-			jetstream.PublisherConfig{
-				URL:       cfg.Addr,
-				Marshaler: jetstream.JSONMarshaler{},
-			},
-			domain.StdLogger(logger),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create nats publisher: %w", err)
-		}
+	// publisher, err := jetstream.NewPublisher(
+	// 	jetstream.PublisherConfig{
+	// 		URL:       cfg.Addr,
+	// 		Marshaler: jetstream.JSONMarshaler{},
+	// 	},
+	// 	domain.StdLogger(logger),
+	// )
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to create nats publisher: %w", err)
+	// }
 
-		return &Events{
-			subscriber: subscriber,
-			publisher:  publisher,
-		}, nil
+	// return &Events{
+	// 	subscriber: subscriber,
+	// 	publisher:  publisher,
+	// }, nil
 	case "nsq":
 		publisher, err := nsq.NsqPublisherMaker(nsq.NsqPublisherConfig{
 			Addr:      config.MessageQueue.Nsq.Addr,

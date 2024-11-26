@@ -5,17 +5,17 @@ import (
 
 	"github.com/akrennmair/slice"
 	"github.com/hnhuaxi/domain/repository"
-	pb "github.com/hnhuaxi/platform/proto"
+	"github.com/hnhuaxi/platform/proto/common"
 	"go.uber.org/multierr"
 )
 
 type (
 	Paginater interface {
-		GetPage() *pb.Paginate
+		GetPage() *common.Paginate
 	}
 
 	MultiFilter interface {
-		GetFilters() []*pb.Filter
+		GetFilters() []*common.Filter
 	}
 
 	GetFilter interface {
@@ -23,7 +23,7 @@ type (
 	}
 
 	MultiSorter interface {
-		GetSorts() []*pb.Sort
+		GetSorts() []*common.Sort
 	}
 
 	GetSort interface {
@@ -69,7 +69,7 @@ func BuildSearchOpts(req interface{}) (*repository.SearchOpt, error) {
 
 		if filters := filter.GetFilters(); len(filters) > 0 {
 
-			filterOpts := slice.Map(filters, func(flt *pb.Filter) repository.FilterItem {
+			filterOpts := slice.Map(filters, func(flt *common.Filter) repository.FilterItem {
 
 				return repository.FilterItem{
 					ID: flt.Id,
@@ -106,7 +106,7 @@ func BuildSearchOpts(req interface{}) (*repository.SearchOpt, error) {
 
 	if sorter, ok := req.(MultiSorter); ok {
 		if sorts := sorter.GetSorts(); len(sorts) > 0 {
-			sortsOpts := slice.Map(sorts, func(flt *pb.Sort) repository.SortMode {
+			sortsOpts := slice.Map(sorts, func(flt *common.Sort) repository.SortMode {
 				return repository.SortMode{
 					Field: flt.Field,
 					// Direction: repository.OrderDirection(),

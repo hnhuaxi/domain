@@ -22,6 +22,7 @@ type SearchOpt struct {
 	Expiration time.Duration
 	Customs    CustomOption
 	SkipCache  bool
+	Scope      Scope
 
 	validKeys []string
 	sch       *schema.Schema
@@ -40,6 +41,7 @@ type PutOption struct {
 	LoadKeys            map[string]KeyFunc
 	ForceCreate         bool
 	Expires             time.Duration
+	Scope               Scope
 }
 
 type CustomOption struct {
@@ -219,6 +221,13 @@ func OptExpiration(duration time.Duration) SearchOptFunc {
 func OptWithoutCache() SearchOptFunc {
 	return func(so *SearchOpt) error {
 		so.SkipCache = true
+		return nil
+	}
+}
+
+func OptDB(db Scope) SearchOptFunc {
+	return func(so *SearchOpt) error {
+		so.Scope = db
 		return nil
 	}
 }

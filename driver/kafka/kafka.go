@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
@@ -82,4 +83,35 @@ func (sub *kafkaSubscribe) Subscribe(ctx context.Context, topic string) (<-chan 
 
 func (sub *kafkaSubscribe) Close() error {
 	return sub.c.Close()
+}
+
+func CreateTopic(cfg SubscribeConfig, topic string) error {
+	defaults.Set(&cfg)
+	a, err := kafka.NewAdminClient(&kafka.ConfigMap{"bootstrap.servers": cfg.Brokers[0]})
+	if err != nil {
+		return err
+	}
+
+	// Contexts are used to abort or limit the amount of time
+	// the Admin call blocks waiting for a result.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Create topics on cluster.
+	// Set Admin options to wait for the operation to finish (or at most 60s)
+
+	_, err = a.CreateTopics(
+		ctx,
+		// Multiple topics can be created simultaneously
+		// by providing more TopicSpecification structs here.
+		[]kafka.TopicSpecification{{
+			Topic:         topic,
+			NumPartitions: 1,
+		}},
+		// Admin options
+		kafka.SetAdminOperationTimeout(time.Minute))
+	if err != nil {
+		return err
+	}
+	return nil
 }

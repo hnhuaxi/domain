@@ -291,6 +291,10 @@ func (r *DBRepository[M, E]) Find(ctx context.Context, opts ...repository.Search
 		return nil, metadata, err
 	}
 
+	if so.Scope != nil {
+		scope = so.Scope
+	}
+
 	log.Printf("search_options %+v", so)
 	withField := func(key string, do func(field *schema.Field)) (_err error) {
 		defer func() {
@@ -462,6 +466,10 @@ func (r *DBRepository[M, E]) Insert(ctx context.Context, entity *E, ops ...repos
 	opts, err := r.buildPutOpts(ops)
 	if err != nil {
 		return err
+	}
+
+	if opts.Scope != nil {
+		scope = opts.Scope
 	}
 
 	scope = r.applyOnConflict(scope, opts)
