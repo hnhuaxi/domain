@@ -2,8 +2,6 @@ module github.com/hnhuaxi/domain
 
 go 1.21
 
-toolchain go1.23.0
-
 require (
 	github.com/AlexCuse/watermill-jetstream v0.0.4
 	github.com/Shopify/sarama v1.38.1
